@@ -63,25 +63,46 @@ class MLP:
         self.W1 += self.learning_rate * np.dot(X.T, error_hidden) / m
         self.b1 += self.learning_rate * np.sum(error_hidden, axis=0, keepdims=True) / m
 
-    def train(self, X, Y, epochs=1000, error_threshold=None, update_callback=None):
+    def train(self, X, Y, max_epochs=1000, error_threshold=None, update_callback=None):
         self.error_history = []
-        for epoch in range(epochs):
-            output = self.forward(X)
-            self.backward(X, Y)
-            # Cálculo do erro quadrático médio
-            mse = np.mean((Y - output) ** 2)
-            self.error_history.append(mse)
-            if error_threshold and mse < error_threshold:
-                print(f'Treinamento parado na época {epoch+1} com erro {mse}')
-                if update_callback:
-                    update_callback(epoch+1, mse)
+        epoch = 0
+        error_mean = float('inf')
+
+        while epoch < max_epochs and error_mean > error_threshold if error_threshold else True:
+            error_mean = 0
+            epoch += 1
+
+            for i in range(X.shape[0]):
+                input_data = X[i:i+1]  # Seleciona o exemplo atual (uma única linha)
+                target = Y[i:i+1]
+
+                # Propagação para frente
+                output = self.forward(input_data)
+
+                # Calcula o erro da rede para este exemplo
+                example_error = np.sum((target - output) ** 2) / 2
+                error_mean += example_error
+
+                # Propagação para trás
+                self.backward(input_data, target)
+
+            # Calcula o erro médio ao final da época
+            error_mean /= X.shape[0]
+            self.error_history.append(error_mean)
+
+            # Callback de atualização
+            if update_callback and error_threshold and (epoch % 10 == 0 or error_mean <= error_threshold):
+                update_callback(epoch, error_mean)
+
+            print(f"Época {epoch}, Erro Médio: {error_mean}")
+
+            if error_threshold and error_mean <= error_threshold:
+                print(f'Treinamento parado na época {epoch} com erro médio {error_mean}')
                 break
-            if update_callback and (epoch+1) % 10 == 0:
-                update_callback(epoch+1, mse)
-        else:
-            # Se o loop não foi interrompido pelo break
-            if update_callback:
-                update_callback(epochs, mse)
+
+        # Finaliza o treinamento
+        if update_callback:
+            update_callback(epoch, error_mean)
 
     def predict(self, X):
         output = self.forward(X)

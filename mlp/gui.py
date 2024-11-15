@@ -24,10 +24,10 @@ class MLPApp:
         
         # Variáveis da Interface
         self.hidden_neurons_var = tk.StringVar(value='5')
-        self.error_threshold_var = tk.StringVar(value='')
+        self.error_threshold_var = tk.StringVar(value='0.01')
         self.epochs_var = tk.StringVar(value='1000')
-        self.learning_rate_var = tk.StringVar(value='0.01')
-        self.activation_function_var = tk.StringVar(value='logistic')
+        self.learning_rate_var = tk.StringVar(value='0.1')
+        self.activation_function_var = tk.StringVar(value='linear')
         self.status_var = tk.StringVar(value='Pronto')
 
         # Inicialização das variáveis de dados
@@ -279,7 +279,7 @@ class MLPApp:
             # Colocar as atualizações na fila
             self.queue.put((epoch, mse))
 
-        self.mlp.train(self.X_train, self.Y_train, epochs=epochs, error_threshold=error_threshold, update_callback=update_progress)
+        self.mlp.train(self.X_train, self.Y_train, max_epochs=epochs, error_threshold=error_threshold, update_callback=update_progress)
         
         # Após o treinamento, colocar um valor sentinela na fila
         self.queue.put('TRAINING_COMPLETED')
