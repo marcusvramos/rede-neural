@@ -1,7 +1,7 @@
 # mlp/gui.py
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -31,6 +31,12 @@ class MLPApp:
         self.status_var = tk.StringVar(value='Pronto')
 
         # Variáveis de dados
+        self.consecutive_no_change_epochs = 0
+        self.previous_mse = None
+        self.max_no_change_epochs = 10
+
+
+        # Inicialização das variáveis de dados
         self.training_filepath = 'data/treinamento.csv'
         self.testing_filepath = 'data/teste.csv'
         self.single_file_path = 'data/arquivo_unico.csv'
@@ -315,7 +321,19 @@ class MLPApp:
 
     def train_network(self, epochs, error_threshold):
         def update_progress(epoch, mse):
-            # Colocar as atualizações na fila
+            if self.previous_mse is not None:
+                print(self.previous_mse - mse)
+                if abs(self.previous_mse - mse) < 0.001:  # Definir um limite para considerar "sem mudança"
+                    self.consecutive_no_change_epochs += 1
+                else:
+                    self.consecutive_no_change_epochs = 0
+            self.previous_mse = mse
+
+            # Verificar se atingiu o platô
+            if self.consecutive_no_change_epochs >= self.max_no_change_epochs:
+                self.queue.put('PLATEAU_REACHED')
+
+            # Colocar o progresso na fila
             self.queue.put((epoch, mse))
 
         self.mlp.train(self.X_train, self.Y_train, max_epochs=epochs, error_threshold=error_threshold, update_callback=update_progress)
@@ -327,17 +345,20 @@ class MLPApp:
         try:
             while True:
                 item = self.queue.get_nowait()
+                print('item', item)
                 if item == 'TRAINING_COMPLETED':
-                    # Treinamento concluído
                     self.after_training()
-                    return  # Parar de processar a fila
+                    return
+                elif item == 'PLATEAU_REACHED':
+                    self.ask_user_to_adjust_learning_rate()
+                    return
                 else:
                     epoch, mse = item
                     self.update_graph(epoch, mse)
         except queue.Empty:
             pass
-        # Agendar a próxima verificação da fila
         self.root.after(100, self.process_queue)
+
 
     def update_graph(self, epoch, mse):
         # Atualizar o gráfico na janela separada
@@ -418,3 +439,30 @@ class MLPApp:
         
         # Opcional: Adicionar um botão para fechar a janela
         tk.Button(cm_window, text="Fechar", command=cm_window.destroy).pack(pady=5)
+
+    def ask_user_to_adjust_learning_rate(self):
+        self.mlp.stop_training()
+        response = messagebox.askyesno(
+            "Platô Atingido",
+            "O erro médio não mudou em 10 épocas consecutivas.\n"
+            "Deseja ajustar a taxa de aprendizado e continuar o treinamento?"
+        )
+        if response:
+            new_rate = simpledialog.askfloat(
+                "Nova Taxa de Aprendizado",
+                "Digite a nova taxa de aprendizado (0 < taxa ≤ 1):",
+                minvalue=0.01, maxvalue=1.0
+            )
+            if new_rate:
+                self.mlp.learning_rate = new_rate
+                self.consecutive_no_change_epochs = 0
+                self.learning_rate_var.set(str(new_rate))
+                self.mlp.resume_training()
+                self.root.after(100, self.process_queue)
+        else:
+            self.status_var.set("Treinamento interrompido pelo usuário.")
+            logging.info("Treinamento interrompido pelo usuário devido ao platô.")
+            self.mlp.finished_training = True
+            self.queue.put('TRAINING_COMPLETED')
+            self.root.after(100, self.process_queue)
+

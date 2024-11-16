@@ -20,6 +20,8 @@ class MLP:
         
         # Histórico do erro
         self.error_history = []
+        self.is_training = True
+        self.finished_training = False
 
     def activation(self, x):
         # Funções de ativação
@@ -63,42 +65,41 @@ class MLP:
         self.W1 += self.learning_rate * np.dot(X.T, error_hidden) / m
         self.b1 += self.learning_rate * np.sum(error_hidden, axis=0, keepdims=True) / m
 
-    def train(self, X, Y, max_epochs=1000, error_threshold=None, update_callback=None):
+    def train(self, X, Y, max_epochs=1000, error_threshold=None, update_callback=None, complete_callback=None):
         self.error_history = []
         epoch = 0
         error_mean = float('inf')
 
-        while epoch < max_epochs and error_mean > error_threshold if error_threshold else True:
-            error_mean = 0
-            epoch += 1
+        while not self.finished_training and epoch < max_epochs and error_mean > error_threshold if error_threshold else True:
+            if self.is_training:
+                error_mean = 0
+                epoch += 1
 
-            for i in range(X.shape[0]):
-                input_data = X[i:i+1]  # Seleciona o exemplo atual (uma única linha)
-                target = Y[i:i+1]
+                for i in range(X.shape[0]):
+                    input_data = X[i:i+1]  # Seleciona o exemplo atual (uma única linha)
+                    target = Y[i:i+1]
 
-                # Propagação para frente
-                output = self.forward(input_data)
+                    # Propagação para frente
+                    output = self.forward(input_data)
 
-                # Calcula o erro da rede para este exemplo
-                example_error = np.sum((target - output) ** 2) / 2
-                error_mean += example_error
+                    # Calcula o erro da rede para este exemplo
+                    example_error = np.sum((target - output) ** 2) / 2
+                    error_mean += example_error
 
-                # Propagação para trás
-                self.backward(input_data, target)
+                    # Propagação para trás
+                    self.backward(input_data, target)
 
-            # Calcula o erro médio ao final da época
-            error_mean /= X.shape[0]
-            self.error_history.append(error_mean)
+                # Calcula o erro médio ao final da época
+                error_mean /= X.shape[0]
+                self.error_history.append(error_mean)
 
-            # Callback de atualização
-            if update_callback and error_threshold and (epoch % 10 == 0 or error_mean <= error_threshold):
-                update_callback(epoch, error_mean)
+                # Callback de atualização
+                if update_callback and error_threshold and (epoch % 10 == 0 or error_mean <= error_threshold):
+                    update_callback(epoch, error_mean)
 
-            print(f"Época {epoch}, Erro Médio: {error_mean}")
-
-            if error_threshold and error_mean <= error_threshold:
-                print(f'Treinamento parado na época {epoch} com erro médio {error_mean}')
-                break
+                if error_threshold and error_mean <= error_threshold:
+                    print(f'Treinamento parado na época {epoch} com erro médio {error_mean}')
+                    break
 
         # Finaliza o treinamento
         if update_callback:
@@ -126,3 +127,9 @@ class MLP:
             self.b1 = data['b1']
             self.b2 = data['b2']
             self.error_history = data['error_history']
+
+    def stop_training(self):
+        self.is_training = False
+
+    def resume_training(self):
+        self.is_training = True
