@@ -1,7 +1,7 @@
 # mlp/gui.py
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,7 +11,7 @@ from .data_loader import load_data, sample_data
 from sklearn.metrics import confusion_matrix
 import numpy as np
 import logging
-import queue  # Importar o módulo queue
+import queue
 
 class MLPApp:
     def __init__(self, root):
@@ -30,12 +30,14 @@ class MLPApp:
         self.activation_function_var = tk.StringVar(value='linear')
         self.status_var = tk.StringVar(value='Pronto')
 
-        # Inicialização das variáveis de dados
+        # Variáveis de dados
         self.training_filepath = 'data/treinamento.csv'
         self.testing_filepath = 'data/teste.csv'
-        self.training_data = None
-        self.testing_data = None
-
+        self.single_file_path = 'data/arquivo_unico.csv'
+        
+        # Variáveis para a escolha da fonte dos dados
+        self.data_source_var = tk.StringVar(value='two_files')
+        
         # Variáveis para a janela do gráfico
         self.graph_window = None
         self.figure = None
@@ -54,57 +56,82 @@ class MLPApp:
         frame = tk.Frame(self.root)
         frame.pack(padx=10, pady=10)
         
+        # Opções de seleção de fonte de dados
+        data_source_frame = tk.LabelFrame(frame, text="Fonte dos Dados")
+        data_source_frame.grid(row=0, column=0, columnspan=2, pady=10, sticky='we')
+        
+        tk.Radiobutton(data_source_frame, text="Usar dois arquivos (treinamento e teste)", variable=self.data_source_var, value='two_files', command=self.update_data_source).grid(row=0, column=0, sticky='w')
+        tk.Radiobutton(data_source_frame, text="Usar um arquivo único", variable=self.data_source_var, value='single_file', command=self.update_data_source).grid(row=1, column=0, sticky='w')
+        
         # Campo para o número de neurônios na camada oculta
-        tk.Label(frame, text="Neurônios na Camada Oculta:").grid(row=0, column=0, sticky='e')
-        tk.Entry(frame, textvariable=self.hidden_neurons_var).grid(row=0, column=1)
+        tk.Label(frame, text="Neurônios na Camada Oculta:").grid(row=2, column=0, sticky='e')
+        tk.Entry(frame, textvariable=self.hidden_neurons_var).grid(row=2, column=1)
         
         # Campo para o valor de erro (limiar)
-        tk.Label(frame, text="Valor de Erro (Opcional):").grid(row=1, column=0, sticky='e')
-        tk.Entry(frame, textvariable=self.error_threshold_var).grid(row=1, column=1)
+        tk.Label(frame, text="Valor de Erro (Opcional):").grid(row=3, column=0, sticky='e')
+        tk.Entry(frame, textvariable=self.error_threshold_var).grid(row=3, column=1)
         
         # Campo para o número de iterações (épocas)
-        tk.Label(frame, text="Número de Iterações:").grid(row=2, column=0, sticky='e')
-        tk.Entry(frame, textvariable=self.epochs_var).grid(row=2, column=1)
+        tk.Label(frame, text="Número de Iterações:").grid(row=4, column=0, sticky='e')
+        tk.Entry(frame, textvariable=self.epochs_var).grid(row=4, column=1)
         
         # Campo para a taxa de aprendizado (N)
-        tk.Label(frame, text="Taxa de Aprendizado (N):").grid(row=3, column=0, sticky='e')
-        tk.Entry(frame, textvariable=self.learning_rate_var).grid(row=3, column=1)
+        tk.Label(frame, text="Taxa de Aprendizado (N):").grid(row=5, column=0, sticky='e')
+        tk.Entry(frame, textvariable=self.learning_rate_var).grid(row=5, column=1)
         
         # Campo para a função de transferência
-        tk.Label(frame, text="Função de Transferência:").grid(row=4, column=0, sticky='e')
+        tk.Label(frame, text="Função de Transferência:").grid(row=6, column=0, sticky='e')
         activation_options = ['linear', 'logistic', 'tanh']
-        tk.OptionMenu(frame, self.activation_function_var, *activation_options).grid(row=4, column=1, sticky='we')
+        tk.OptionMenu(frame, self.activation_function_var, *activation_options).grid(row=6, column=1, sticky='we')
         
-        # Campo para escolher a porcentagem dos dados
-        data_percentage_frame = tk.LabelFrame(frame, text="Porcentagem dos Dados")
-        data_percentage_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky='we')
+        # Frame para as porcentagens dos dados
+        self.data_percentage_frame = tk.LabelFrame(frame, text="Porcentagem dos Dados (Amostragem)")
+        self.data_percentage_frame.grid(row=7, column=0, columnspan=2, pady=10, sticky='we')
         
-        tk.Label(data_percentage_frame, text="Porcentagem de Treinamento.csv (%):").grid(row=0, column=0, sticky='e')
+        tk.Label(self.data_percentage_frame, text="Porcentagem de Treinamento (%):").grid(row=0, column=0, sticky='e')
         self.train_percentage_var = tk.StringVar(value='70')
-        tk.Entry(data_percentage_frame, textvariable=self.train_percentage_var, width=5).grid(row=0, column=1, sticky='w')
+        tk.Entry(self.data_percentage_frame, textvariable=self.train_percentage_var, width=5).grid(row=0, column=1, sticky='w')
         
-        tk.Label(data_percentage_frame, text="Porcentagem de Teste.csv (%):").grid(row=1, column=0, sticky='e')
+        tk.Label(self.data_percentage_frame, text="Porcentagem de Teste (%):").grid(row=1, column=0, sticky='e')
         self.test_percentage_var = tk.StringVar(value='30')
-        tk.Entry(data_percentage_frame, textvariable=self.test_percentage_var, width=5).grid(row=1, column=1, sticky='w')
-
+        tk.Entry(self.data_percentage_frame, textvariable=self.test_percentage_var, width=5).grid(row=1, column=1, sticky='w')
+        
+        # Desabilitar os widgets dentro do frame de porcentagens inicialmente se a opção selecionada for usar um arquivo único
+        if self.data_source_var.get() == 'single_file':
+            self.set_data_percentage_frame_state('disabled')
+        else:
+            self.set_data_percentage_frame_state('normal')
+        
         # Botão para iniciar o treinamento
-        tk.Button(frame, text="Iniciar Treinamento", command=self.start_training).grid(row=6, column=0, columnspan=2, pady=10)
+        tk.Button(frame, text="Iniciar Treinamento", command=self.start_training).grid(row=8, column=0, columnspan=2, pady=10)
         
         # Label de status
-        tk.Label(frame, textvariable=self.status_var).grid(row=7, column=0, columnspan=2)
+        tk.Label(frame, textvariable=self.status_var).grid(row=9, column=0, columnspan=2)
         
         # Área para exibir os dados de treinamento
         tk.Label(self.root, text="Dados de Treinamento (Normalizados):").pack(pady=(10, 0))
         self.train_tree = ttk.Treeview(self.root, show='headings')
         self.train_tree.pack(fill='both', expand=True, padx=10)
-        # Inicialmente, a tabela está vazia; será preenchida após a carga dos dados
         
         # Área para exibir os dados de teste
         tk.Label(self.root, text="Dados de Teste (Normalizados):").pack(pady=(10, 0))
         self.test_tree = ttk.Treeview(self.root, show='headings')
         self.test_tree.pack(fill='both', expand=True, padx=10)
-        # Inicialmente, a tabela está vazia; será preenchida após a carga dos dados
+        
+    def set_data_percentage_frame_state(self, state):
+        for child in self.data_percentage_frame.winfo_children():
+            try:
+                child.configure(state=state)
+            except tk.TclError:
+                pass  # Widget não suporta a opção 'state'
 
+    def update_data_source(self):
+        # Habilitar ou desabilitar os campos de porcentagem com base na escolha do usuário
+        if self.data_source_var.get() == 'single_file':
+            self.set_data_percentage_frame_state('disabled')
+        else:
+            self.set_data_percentage_frame_state('normal')
+        
     def display_data(self, data, tree):
         # Limpar a Treeview
         tree.delete(*tree.get_children())
@@ -116,8 +143,17 @@ class MLPApp:
         # Inserir os dados
         for index, row in data.iterrows():
             tree.insert("", "end", values=list(row))
-
+    
     def start_training(self):
+        # Fechar a janela do gráfico anterior, se existir
+        if self.graph_window is not None:
+            self.on_close_graph_window()
+        
+        # Reinicializar a fila
+        self.queue = queue.Queue()
+        # Iniciar o processamento da fila novamente
+        self.root.after(100, self.process_queue)
+        
         try:
             # Obter os parâmetros da interface
             hidden_neurons = int(self.hidden_neurons_var.get())
@@ -144,29 +180,32 @@ class MLPApp:
             if activation_function not in ['linear', 'logistic', 'tanh']:
                 raise ValueError("Função de ativação inválida.")
             
-            # Obter as porcentagens dos dados
-            train_percentage = float(self.train_percentage_var.get())
-            test_percentage = float(self.test_percentage_var.get())
-            if not (0 < train_percentage <= 100):
-                raise ValueError("A porcentagem de treinamento deve estar entre 0 e 100.")
-            if not (0 < test_percentage <= 100):
-                raise ValueError("A porcentagem de teste deve estar entre 0 e 100.")
-            if (train_percentage + test_percentage) > 100:
-                raise ValueError("A soma das porcentagens de treinamento e teste não pode exceder 100%.")
-            
             # Atualizar o status
             self.status_var.set("Carregando os dados...")
             
-            # Limpar a matriz de confusão (agora não existe mais na janela principal)
-            # self.confusion_text.delete(1.0, tk.END)
-            
-            # Carregar os dados
-            training_data_full = load_data(self.training_filepath)
-            testing_data_full = load_data(self.testing_filepath)
-            
-            # Selecionar a porcentagem dos dados
-            training_data = sample_data(training_data_full, train_percentage)
-            testing_data = sample_data(testing_data_full, test_percentage)
+            # Carregar os dados com base na escolha do usuário
+            if self.data_source_var.get() == 'single_file':
+                # Usar todo o conjunto de dados do arquivo único
+                data_full = load_data(self.single_file_path)
+                training_data = data_full
+                testing_data = data_full  # Opcionalmente, você pode definir testing_data como vazio ou usar o mesmo conjunto
+            else:
+                # Obter as porcentagens dos dados
+                train_percentage = float(self.train_percentage_var.get())
+                test_percentage = float(self.test_percentage_var.get())
+                if not (0 < train_percentage <= 100):
+                    raise ValueError("A porcentagem de treinamento deve estar entre 0 e 100.")
+                if not (0 < test_percentage <= 100):
+                    raise ValueError("A porcentagem de teste deve estar entre 0 e 100.")
+                if (train_percentage + test_percentage) > 100:
+                    raise ValueError("A soma das porcentagens de treinamento e teste não pode exceder 100%.")
+                
+                # Carregar os dados
+                training_data_full = load_data(self.training_filepath)
+                testing_data_full = load_data(self.testing_filepath)
+                # Selecionar a porcentagem dos dados
+                training_data = sample_data(training_data_full, train_percentage)
+                testing_data = sample_data(testing_data_full, test_percentage)
             
             # Combinar os dados para codificação
             all_data = pd.concat([training_data, testing_data], ignore_index=True)
@@ -249,7 +288,7 @@ class MLPApp:
             messagebox.showerror("Erro", f"Erro ao iniciar o treinamento: {e}")
             logging.error(f"Erro ao iniciar o treinamento: {e}")
             self.status_var.set("Erro ao iniciar o treinamento.")
-
+    
     def create_graph_window(self):
         # Criar uma nova janela para o gráfico
         self.graph_window = tk.Toplevel(self.root)
