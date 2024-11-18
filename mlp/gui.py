@@ -66,8 +66,12 @@ class MLPApp:
         data_source_frame = tk.LabelFrame(frame, text="Fonte dos Dados")
         data_source_frame.grid(row=0, column=0, columnspan=2, pady=10, sticky='we')
         
-        tk.Radiobutton(data_source_frame, text="Usar dois arquivos (treinamento e teste)", variable=self.data_source_var, value='two_files', command=self.update_data_source).grid(row=0, column=0, sticky='w')
-        tk.Radiobutton(data_source_frame, text="Usar um arquivo único", variable=self.data_source_var, value='single_file', command=self.update_data_source).grid(row=1, column=0, sticky='w')
+        tk.Radiobutton(data_source_frame, text="Usar dois arquivos (treinamento e teste)", 
+                    variable=self.data_source_var, value='two_files', 
+                    command=self.update_data_source).grid(row=0, column=0, sticky='w')
+        tk.Radiobutton(data_source_frame, text="Usar um arquivo único", 
+                    variable=self.data_source_var, value='single_file', 
+                    command=self.update_data_source).grid(row=1, column=0, sticky='w')
         
         # Campo para o número de neurônios na camada oculta
         tk.Label(frame, text="Neurônios na Camada Oculta:").grid(row=2, column=0, sticky='e')
@@ -102,11 +106,8 @@ class MLPApp:
         self.test_percentage_var = tk.StringVar(value='30')
         tk.Entry(self.data_percentage_frame, textvariable=self.test_percentage_var, width=5).grid(row=1, column=1, sticky='w')
         
-        # Desabilitar os widgets dentro do frame de porcentagens inicialmente se a opção selecionada for usar um arquivo único
-        if self.data_source_var.get() == 'single_file':
-            self.set_data_percentage_frame_state('disabled')
-        else:
-            self.set_data_percentage_frame_state('normal')
+        # Inicializar o estado dos widgets baseando-se na seleção padrão ('two_files')
+        self.set_data_percentage_frame_state('disabled')
         
         # Botão para iniciar o treinamento
         tk.Button(frame, text="Iniciar Treinamento", command=self.start_training).grid(row=8, column=0, columnspan=2, pady=10)
@@ -123,7 +124,7 @@ class MLPApp:
         tk.Label(self.root, text="Dados de Teste (Normalizados):").pack(pady=(10, 0))
         self.test_tree = ttk.Treeview(self.root, show='headings')
         self.test_tree.pack(fill='both', expand=True, padx=10)
-        
+
     def set_data_percentage_frame_state(self, state):
         for child in self.data_percentage_frame.winfo_children():
             try:
@@ -134,9 +135,10 @@ class MLPApp:
     def update_data_source(self):
         # Habilitar ou desabilitar os campos de porcentagem com base na escolha do usuário
         if self.data_source_var.get() == 'single_file':
-            self.set_data_percentage_frame_state('disabled')
+            self.set_data_percentage_frame_state('normal')  # Habilitar campos de porcentagem
         else:
-            self.set_data_percentage_frame_state('normal')
+            self.set_data_percentage_frame_state('disabled')  # Desabilitar campos de porcentagem
+
         
     def display_data(self, data, tree):
         # Limpar a Treeview
@@ -157,46 +159,24 @@ class MLPApp:
         
         # Reinicializar a fila
         self.queue = queue.Queue()
-        # Iniciar o processamento da fila novamente
         self.root.after(100, self.process_queue)
-        
+
         try:
-            # Obter os parâmetros da interface
+            # Obter parâmetros da interface
             hidden_neurons = int(self.hidden_neurons_var.get())
-            if hidden_neurons <= 0:
-                raise ValueError("O número de neurônios deve ser positivo.")
-            
             error_threshold_input = self.error_threshold_var.get()
-            if error_threshold_input:
-                error_threshold = float(error_threshold_input)
-                if error_threshold <= 0:
-                    raise ValueError("O valor de erro deve ser positivo.")
-            else:
-                error_threshold = None
-            
+            error_threshold = float(error_threshold_input) if error_threshold_input else None
             epochs = int(self.epochs_var.get())
-            if epochs <= 0:
-                raise ValueError("O número de iterações deve ser positivo.")
-            
             learning_rate = float(self.learning_rate_var.get())
-            if not (0 < learning_rate <= 1):
-                raise ValueError("A taxa de aprendizado deve estar entre 0 e 1.")
-            
             activation_function = self.activation_function_var.get()
-            if activation_function not in ['linear', 'logistic', 'tanh']:
-                raise ValueError("Função de ativação inválida.")
-            
-            # Atualizar o status
+
+            # Carregar os dados
             self.status_var.set("Carregando os dados...")
-            
-            # Carregar os dados com base na escolha do usuário
             if self.data_source_var.get() == 'single_file':
-                # Usar todo o conjunto de dados do arquivo único
+                # Dados de um único arquivo
                 data_full = load_data(self.single_file_path)
-                training_data = data_full
-                testing_data = data_full  # Opcionalmente, você pode definir testing_data como vazio ou usar o mesmo conjunto
-            else:
-                # Obter as porcentagens dos dados
+
+                # Separar porcentagens de treinamento e teste
                 train_percentage = float(self.train_percentage_var.get())
                 test_percentage = float(self.test_percentage_var.get())
                 if not (0 < train_percentage <= 100):
@@ -204,96 +184,64 @@ class MLPApp:
                 if not (0 < test_percentage <= 100):
                     raise ValueError("A porcentagem de teste deve estar entre 0 e 100.")
                 if (train_percentage + test_percentage) > 100:
-                    raise ValueError("A soma das porcentagens de treinamento e teste não pode exceder 100%.")
-                
-                # Carregar os dados
-                training_data_full = load_data(self.training_filepath)
-                testing_data_full = load_data(self.testing_filepath)
-                # Selecionar a porcentagem dos dados
-                training_data = sample_data(training_data_full, train_percentage)
-                testing_data = sample_data(testing_data_full, test_percentage)
+                    raise ValueError("A soma das porcentagens não pode exceder 100%.")
+
+                # Dividir os dados
+                training_data = sample_data(data_full, train_percentage)
+                remaining_data = data_full.drop(training_data.index)
+                testing_data = sample_data(remaining_data, test_percentage)
+            else:
+                # Dois arquivos separados
+                training_data = load_data(self.training_filepath)
+                testing_data = load_data(self.testing_filepath)
             
-            # Combinar os dados para codificação
+            # Processar os dados (normalização, separação de X e Y, etc.)
             all_data = pd.concat([training_data, testing_data], ignore_index=True)
-            
-            # Codificar as classes
             X_all = all_data.iloc[:, :-1].values.astype(float)
             y_raw_all = all_data.iloc[:, -1].values
             classes = np.unique(y_raw_all)
             class_to_num = {k: v for v, k in enumerate(classes)}
             y_num_all = np.array([class_to_num[cls] for cls in y_raw_all])
             Y_all = np.eye(len(classes))[y_num_all]
-            
-            # Separar novamente os dados de treinamento e teste
+
+            # Dividir dados de treino e teste novamente
             X_train = X_all[:len(training_data)]
             Y_train = Y_all[:len(training_data)]
             y_train_num = y_num_all[:len(training_data)]
-            
             X_test = X_all[len(training_data):]
             Y_test = Y_all[len(training_data):]
             y_test_num = y_num_all[len(training_data):]
-            
-            # Normalização dos dados com base no conjunto de treinamento
+
+            # Normalizar os dados
             min_values = X_train.min(axis=0)
             max_values = X_train.max(axis=0)
             ranges = max_values - min_values
-            ranges[ranges == 0] = 1  # Evitar divisão por zero
+            ranges[ranges == 0] = 1
             X_train_normalized = (X_train - min_values) / ranges
             X_test_normalized = (X_test - min_values) / ranges
-            
-            # Criar DataFrames para exibir na interface
-            y_train_raw = [classes[num] for num in y_train_num]
-            y_test_raw = [classes[num] for num in y_test_num]
-            
-            data_train_normalized = pd.DataFrame(X_train_normalized, columns=training_data.columns[:-1])
-            data_train_normalized['classe'] = y_train_raw
-            data_test_normalized = pd.DataFrame(X_test_normalized, columns=testing_data.columns[:-1])
-            data_test_normalized['classe'] = y_test_raw
-            
-            # Atualizar variáveis de instância
+
+            # Atualizar variáveis e interface
             self.X_train = X_train_normalized
             self.Y_train = Y_train
             self.y_train_num = y_train_num
-            self.class_to_num = class_to_num
-            self.min_values = min_values
-            self.max_values = max_values
-            self.data_train_normalized = data_train_normalized
-            
             self.X_test = X_test_normalized
             self.Y_test = Y_test
             self.y_test_num = y_test_num
-            self.data_test_normalized = data_test_normalized
-            
-            # Atualizar as tabelas na interface
-            self.display_data(self.data_train_normalized, self.train_tree)
-            self.display_data(self.data_test_normalized, self.test_tree)
-            
-            # Atualizar o tamanho das camadas de entrada e saída
-            self.input_size = self.X_train.shape[1]
-            self.output_size = self.Y_train.shape[1]
-            
-            # Atualizar o status
-            self.status_var.set("Preparando o gráfico...")
-            
-            # Criar a janela do gráfico
+            self.display_data(pd.DataFrame(X_train_normalized), self.train_tree)
+            self.display_data(pd.DataFrame(X_test_normalized), self.test_tree)
+
+            # Criar janela de gráfico
             self.create_graph_window()
-            
-            # Atualizar o status
-            self.status_var.set("Treinando a rede...")
-            
-            # Inicializar e treinar a rede em uma thread separada
-            self.mlp = MLP(self.input_size, hidden_neurons, self.output_size, learning_rate, activation_function)
+
+            # Criar a rede e iniciar o treinamento em uma thread separada
+            self.mlp = MLP(X_train.shape[1], hidden_neurons, Y_train.shape[1], learning_rate, activation_function)
             training_thread = threading.Thread(target=self.train_network, args=(epochs, error_threshold))
             training_thread.start()
-            logging.info(f"Iniciando treinamento: Neurônios Ocultos={hidden_neurons}, Épocas={epochs}, Taxa de Aprendizado={learning_rate}, Função de Ativação={activation_function}")
-        except ValueError as ve:
-            messagebox.showerror("Erro de Validação", str(ve))
-            logging.error(f"Erro de Validação: {ve}")
-            self.status_var.set("Erro ao iniciar o treinamento.")
+
+            self.status_var.set("Treinando a rede...")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao iniciar o treinamento: {e}")
-            logging.error(f"Erro ao iniciar o treinamento: {e}")
-            self.status_var.set("Erro ao iniciar o treinamento.")
+
     
     def create_graph_window(self):
         # Criar uma nova janela para o gráfico
