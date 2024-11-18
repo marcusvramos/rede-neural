@@ -322,7 +322,6 @@ class MLPApp:
     def train_network(self, epochs, error_threshold):
         def update_progress(epoch, mse):
             if self.previous_mse is not None:
-                print(self.previous_mse - mse)
                 if abs(self.previous_mse - mse) < 0.001:  # Definir um limite para considerar "sem mudança"
                     self.consecutive_no_change_epochs += 1
                 else:
@@ -345,9 +344,11 @@ class MLPApp:
         try:
             while True:
                 item = self.queue.get_nowait()
+                print(item)
                 if item == 'TRAINING_COMPLETED':
+                    # Certifique-se de que o treinamento está finalizado
                     self.mlp.finished_training = True
-                    self.after_training()
+                    self.after_training()  # Sempre chama o método para exibir a matriz
                     return
                 elif item == 'PLATEAU_REACHED':
                     # Exibe o modal para ajuste
@@ -361,7 +362,6 @@ class MLPApp:
         # Continue processando a fila se ainda houver treinamento
         if not self.mlp.finished_training:
             self.root.after(100, self.process_queue)
-
 
 
     def update_graph(self, epoch, mse):
@@ -473,5 +473,6 @@ class MLPApp:
             self.status_var.set("Treinamento interrompido pelo usuário.")
             logging.info("Treinamento interrompido pelo usuário devido ao platô.")
             self.mlp.finished_training = True
+            # Coloca um sinal na fila para encerrar
             self.queue.put('TRAINING_COMPLETED')
             self.root.after(100, self.process_queue)
