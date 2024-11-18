@@ -13,6 +13,7 @@ import numpy as np
 import logging
 import queue
 
+
 class MLPApp:
     def __init__(self, root):
         self.root = root
@@ -35,7 +36,6 @@ class MLPApp:
         self.previous_mse = None
         self.max_no_change_epochs = 10
 
-
         # Inicialização das variáveis de dados
         self.training_filepath = 'data/treinamento.csv'
         self.testing_filepath = 'data/teste.csv'
@@ -49,6 +49,10 @@ class MLPApp:
         self.figure = None
         self.ax = None
         self.canvas = None
+
+        # Inicialização de atributos adicionais
+        self.mlp = None  # Inicialização de mlp
+        self.class_to_num = {}  # Inicialização de class_to_num
 
         # Criar uma fila para comunicação entre threads
         self.queue = queue.Queue()
@@ -200,8 +204,8 @@ class MLPApp:
             X_all = all_data.iloc[:, :-1].values.astype(float)
             y_raw_all = all_data.iloc[:, -1].values
             classes = np.unique(y_raw_all)
-            class_to_num = {k: v for v, k in enumerate(classes)}
-            y_num_all = np.array([class_to_num[cls] for cls in y_raw_all])
+            self.class_to_num = {k: v for v, k in enumerate(classes)}  # Alterado para self.class_to_num
+            y_num_all = np.array([self.class_to_num[cls] for cls in y_raw_all])
             Y_all = np.eye(len(classes))[y_num_all]
 
             # Dividir dados de treino e teste novamente
@@ -241,7 +245,7 @@ class MLPApp:
             self.status_var.set("Treinando a rede...")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao iniciar o treinamento: {e}")
-
+            logging.error(f"Erro ao iniciar o treinamento: {e}")
     
     def create_graph_window(self):
         # Criar uma nova janela para o gráfico
@@ -268,25 +272,29 @@ class MLPApp:
             self.graph_window = None
 
     def train_network(self, epochs, error_threshold):
-        def update_progress(epoch, mse):
-            if self.previous_mse is not None:
-                if abs(self.previous_mse - mse) < 0.001:  # Definir um limite para considerar "sem mudança"
-                    self.consecutive_no_change_epochs += 1
-                else:
-                    self.consecutive_no_change_epochs = 0
-            self.previous_mse = mse
+        try:
+            def update_progress(epoch, mse):
+                if self.previous_mse is not None:
+                    if abs(self.previous_mse - mse) < 0.001:  # Definir um limite para considerar "sem mudança"
+                        self.consecutive_no_change_epochs += 1
+                    else:
+                        self.consecutive_no_change_epochs = 0
+                self.previous_mse = mse
 
-            # Verificar se atingiu o platô
-            if self.consecutive_no_change_epochs >= self.max_no_change_epochs:
-                self.queue.put('PLATEAU_REACHED')
+                # Verificar se atingiu o platô
+                if self.consecutive_no_change_epochs >= self.max_no_change_epochs:
+                    self.queue.put('PLATEAU_REACHED')
 
-            # Colocar o progresso na fila
-            self.queue.put((epoch, mse))
+                # Colocar o progresso na fila
+                self.queue.put((epoch, mse))
 
-        self.mlp.train(self.X_train, self.Y_train, max_epochs=epochs, error_threshold=error_threshold, update_callback=update_progress)
-        
-        # Após o treinamento, colocar um valor sentinela na fila
-        self.queue.put('TRAINING_COMPLETED')
+            self.mlp.train(self.X_train, self.Y_train, max_epochs=epochs, error_threshold=error_threshold, update_callback=update_progress)
+            
+            # Após o treinamento, colocar um valor sentinela na fila
+            self.queue.put('TRAINING_COMPLETED')
+        except Exception as e:
+            self.queue.put(('ERROR', str(e)))
+            logging.error(f"Erro durante o treinamento: {e}")
 
     def process_queue(self):
         try:
@@ -294,13 +302,18 @@ class MLPApp:
                 item = self.queue.get_nowait()
                 print(item)
                 if item == 'TRAINING_COMPLETED':
-                    # Certifique-se de que o treinamento está finalizado
-                    self.mlp.finished_training = True
+                    if self.mlp:
+                        self.mlp.finished_training = True
                     self.after_training()  # Sempre chama o método para exibir a matriz
                     return
                 elif item == 'PLATEAU_REACHED':
-                    # Exibe o modal para ajuste
                     self.ask_user_to_adjust_learning_rate()
+                    return
+                elif isinstance(item, tuple) and item[0] == 'ERROR':
+                    # Exibir o erro ao usuário
+                    messagebox.showerror("Erro no Treinamento", item[1])
+                    self.status_var.set("Erro durante o treinamento.")
+                    logging.error(f"Erro durante o treinamento: {item[1]}")
                     return
                 else:
                     epoch, mse = item
@@ -308,9 +321,8 @@ class MLPApp:
         except queue.Empty:
             pass
         # Continue processando a fila se ainda houver treinamento
-        if not self.mlp.finished_training:
+        if self.mlp and not getattr(self.mlp, 'finished_training', False):
             self.root.after(100, self.process_queue)
-
 
     def update_graph(self, epoch, mse):
         # Atualizar o gráfico na janela separada
@@ -331,70 +343,83 @@ class MLPApp:
 
     def after_training(self):
         # Função chamada após o treinamento ser concluído
-        # Realizar as previsões e mostrar a matriz de confusão
-        predictions = self.mlp.predict(self.X_test)
+        if not self.mlp:
+            messagebox.showerror("Erro", "Modelo MLP não foi inicializado.")
+            logging.error("Tentativa de acessar modelo MLP não inicializado após o treinamento.")
+            return
         
-        # Mapeamento dos números de volta para as classes originais
-        num_to_class = {v: k for k, v in self.class_to_num.items()}
-        predicted_classes = [num_to_class[num] for num in predictions]
-        actual_classes = [num_to_class[num] for num in self.y_test_num]
-        
-        # Geração da matriz de confusão
-        conf_matrix = confusion_matrix(actual_classes, predicted_classes, labels=list(self.class_to_num.keys()))
-        
-        # Exibir a matriz de confusão em uma nova janela
-        self.show_confusion_matrix(conf_matrix, list(self.class_to_num.keys()))
-        
-        # Atualizar o status
-        self.status_var.set("Treinamento concluído.")
-        logging.info("Treinamento concluído.")
+        try:
+            # Realizar as previsões e mostrar a matriz de confusão
+            predictions = self.mlp.predict(self.X_test)
+            
+            # Mapeamento dos números de volta para as classes originais
+            num_to_class = {v: k for k, v in self.class_to_num.items()}
+            predicted_classes = [num_to_class[num] for num in predictions]
+            actual_classes = [num_to_class[num] for num in self.y_test_num]
+            
+            # Geração da matriz de confusão
+            conf_matrix = confusion_matrix(actual_classes, predicted_classes, labels=list(self.class_to_num.keys()))
+            
+            # Exibir a matriz de confusão em uma nova janela
+            self.show_confusion_matrix(conf_matrix, list(self.class_to_num.keys()))
+            
+            # Atualizar o status
+            self.status_var.set("Treinamento concluído.")
+            logging.info("Treinamento concluído.")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro após o treinamento: {e}")
+            logging.error(f"Erro após o treinamento: {e}")
 
     def show_confusion_matrix(self, conf_matrix, class_names):
-        # Criar uma nova janela para a matriz de confusão
-        cm_window = tk.Toplevel(self.root)
-        cm_window.title("Matriz de Confusão")
-        
-        # Configurar o gráfico da matriz de confusão
-        fig, ax = plt.subplots(figsize=(6, 5))
-        im = ax.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
-        ax.figure.colorbar(im, ax=ax)
-        
-        # Definir ticks e labels
-        ax.set(
-            xticks=np.arange(conf_matrix.shape[1]),
-            yticks=np.arange(conf_matrix.shape[0]),
-            xticklabels=class_names,
-            yticklabels=class_names,
-            ylabel='Classe Real',
-            xlabel='Classe Predita',
-            title='Matriz de Confusão'
-        )
-        
-        # Rotacionar os labels do eixo x
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
-        
-        # Adicionar os valores da matriz de confusão nas células
-        fmt = 'd'
-        thresh = conf_matrix.max() / 2.
-        for i in range(conf_matrix.shape[0]):
-            for j in range(conf_matrix.shape[1]):
-                ax.text(j, i, format(conf_matrix[i, j], fmt),
-                        ha="center", va="center",
-                        color="white" if conf_matrix[i, j] > thresh else "black")
-        
-        fig.tight_layout()
-        
-        # Exibir o gráfico na nova janela
-        canvas = FigureCanvasTkAgg(fig, master=cm_window)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill='both', expand=True)
-        
-        # Opcional: Adicionar um botão para fechar a janela
-        tk.Button(cm_window, text="Fechar", command=cm_window.destroy).pack(pady=5)
+        try:
+            # Criar uma nova janela para a matriz de confusão
+            cm_window = tk.Toplevel(self.root)
+            cm_window.title("Matriz de Confusão")
+            
+            # Configurar o gráfico da matriz de confusão
+            fig, ax = plt.subplots(figsize=(6, 5))
+            im = ax.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
+            ax.figure.colorbar(im, ax=ax)
+            
+            # Definir ticks e labels
+            ax.set(
+                xticks=np.arange(conf_matrix.shape[1]),
+                yticks=np.arange(conf_matrix.shape[0]),
+                xticklabels=class_names,
+                yticklabels=class_names,
+                ylabel='Classe Real',
+                xlabel='Classe Predita',
+                title='Matriz de Confusão'
+            )
+            
+            # Rotacionar os labels do eixo x
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+            
+            # Adicionar os valores da matriz de confusão nas células
+            fmt = 'd'
+            thresh = conf_matrix.max() / 2.
+            for i in range(conf_matrix.shape[0]):
+                for j in range(conf_matrix.shape[1]):
+                    ax.text(j, i, format(conf_matrix[i, j], fmt),
+                            ha="center", va="center",
+                            color="white" if conf_matrix[i, j] > thresh else "black")
+            
+            fig.tight_layout()
+            
+            # Exibir o gráfico na nova janela
+            canvas = FigureCanvasTkAgg(fig, master=cm_window)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill='both', expand=True)
+            
+            # Opcional: Adicionar um botão para fechar a janela
+            tk.Button(cm_window, text="Fechar", command=cm_window.destroy).pack(pady=5)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao exibir a matriz de confusão: {e}")
+            logging.error(f"Erro ao exibir a matriz de confusão: {e}")
 
     def ask_user_to_adjust_learning_rate(self):
-        if not self.mlp.is_training:
-            return  # Já foi interrompido
+        if not self.mlp or not self.mlp.is_training:
+            return  # Já foi interrompido ou não está treinando
         
         # Pausar treinamento
         self.mlp.stop_training()
@@ -420,7 +445,8 @@ class MLPApp:
             # Finalizar treinamento e forçar o processamento de finalização
             self.status_var.set("Treinamento interrompido pelo usuário.")
             logging.info("Treinamento interrompido pelo usuário devido ao platô.")
-            self.mlp.finished_training = True
+            if self.mlp:
+                self.mlp.finished_training = True
             # Coloca um sinal na fila para encerrar
             self.queue.put('TRAINING_COMPLETED')
             self.root.after(100, self.process_queue)
