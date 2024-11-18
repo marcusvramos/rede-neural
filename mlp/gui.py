@@ -345,11 +345,12 @@ class MLPApp:
         try:
             while True:
                 item = self.queue.get_nowait()
-                print('item', item)
                 if item == 'TRAINING_COMPLETED':
+                    self.mlp.finished_training = True
                     self.after_training()
                     return
                 elif item == 'PLATEAU_REACHED':
+                    # Exibe o modal para ajuste
                     self.ask_user_to_adjust_learning_rate()
                     return
                 else:
@@ -357,7 +358,10 @@ class MLPApp:
                     self.update_graph(epoch, mse)
         except queue.Empty:
             pass
-        self.root.after(100, self.process_queue)
+        # Continue processando a fila se ainda houver treinamento
+        if not self.mlp.finished_training:
+            self.root.after(100, self.process_queue)
+
 
 
     def update_graph(self, epoch, mse):
@@ -441,7 +445,12 @@ class MLPApp:
         tk.Button(cm_window, text="Fechar", command=cm_window.destroy).pack(pady=5)
 
     def ask_user_to_adjust_learning_rate(self):
+        if not self.mlp.is_training:
+            return  # Já foi interrompido
+        
+        # Pausar treinamento
         self.mlp.stop_training()
+
         response = messagebox.askyesno(
             "Platô Atingido",
             "O erro médio não mudou em 10 épocas consecutivas.\n"
@@ -460,9 +469,9 @@ class MLPApp:
                 self.mlp.resume_training()
                 self.root.after(100, self.process_queue)
         else:
+            # Finalizar treinamento e forçar o processamento de finalização
             self.status_var.set("Treinamento interrompido pelo usuário.")
             logging.info("Treinamento interrompido pelo usuário devido ao platô.")
             self.mlp.finished_training = True
             self.queue.put('TRAINING_COMPLETED')
             self.root.after(100, self.process_queue)
-
